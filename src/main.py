@@ -2,13 +2,14 @@
 This module takes care of starting the API Server, Loading the DB and Adding the endpoints
 """
 import os
+import json
 from flask import Flask, request, jsonify, url_for
 from flask_migrate import Migrate
 from flask_swagger import swagger
 from flask_cors import CORS
 from utils import APIException, generate_sitemap
 from admin import setup_admin
-from models import db, User
+from models import db, Contact
 #from models import Person
 
 app = Flask(__name__)
@@ -30,14 +31,88 @@ def handle_invalid_usage(error):
 def sitemap():
     return generate_sitemap(app)
 
-@app.route('/user', methods=['GET'])
-def handle_hello():
+@app.route('/contact/all', methods=['GET'])
+def get_contacts():
+    contact_query = Contact.query.all()
+    contacts = list(map(lambda contact: contact.serialize(), contact_query))
+    return jsonify(contacts), 200
 
-    response_body = {
-        "msg": "Hello, this is your GET /user response "
+@app.route('/contact', methods=['POST'])
+def add_contact():
+    data = json.loads(request.data)
+
+    contact = Contact.query.filter_by(email=data['email']).first()
+    
+    if contact is None:
+        new_contact = Contact(**data)
+        db.session.add(new_contact)
+        db.session.commit()
+
+        contact_query = Contact.query.all()
+        contacts = list(map(lambda contact: contact.serialize(), contact_query))
+
+        res = {
+            "contacts": contacts,
+            "message":"ok",
+        }
+
+        return jsonify(res), 200
+
+    return jsonify({"message": f"Email {data['email']} already exist"}), 400
+    
+    
+
+@app.route('/contact/<int:contact_id>', methods=['DELETE'])
+def delete_contact(contact_id):
+    contact = Contact.query.get(contact_id)
+    if contact is None:
+        return jsonify({"Message": f"Contact with id {contact_id} not found"}), 400
+    
+    db.session.delete(contact)
+    db.session.commit()
+
+    contact_query = Contact.query.all()
+    contacts = list(map(lambda contact: contact.serialize(), contact_query))
+
+    res = {
+        "contacts": contacts,
+        "message":f"Contact {contact_id} deleted successfully",
     }
 
-    return jsonify(response_body), 200
+    return jsonify(res), 200
+
+
+@app.route("/contact/<int:contact_id>", methods=["PUT"])
+def edit_contact(contact_id):
+    
+    data = json.loads(request.data)
+
+    contact = Contact.query.get(contact_id)
+    if contact is None:
+        return jsonify({"Message": f"Contact with id {contact_id} not found"}), 400
+
+    if "full_name" in data:
+        contact.full_name = data["full_name"]
+    if "email" in data:
+        contact.email = data["email"]
+    if "phone" in data:
+        contact.phone = data["phone"]
+    if "address" in data:
+        contact.address = data["address"]
+    
+    db.session.commit()
+
+    contact_query = Contact.query.all()
+    contacts = list(map(lambda contact: contact.serialize(), contact_query))
+
+    res = {
+        "message": f"Contact {contact_id} updated successfully",
+        "contacts": contacts,
+    }
+
+    return jsonify(res), 200
+
+
 
 # this only runs if `$ python src/main.py` is executed
 if __name__ == '__main__':
